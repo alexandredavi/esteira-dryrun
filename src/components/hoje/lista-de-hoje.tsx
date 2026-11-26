@@ -1,53 +1,69 @@
 "use client";
 
-import { useId, useState, useSyncExternalStore } from "react";
+import { startTransition, useId, useOptimistic, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { criarListaDoAparelho, criarListaVazia } from "@/lib/mocks/tarefas";
+import { anotar } from "@/app/(app)/actions";
+import type { Tarefa } from "@/lib/types/tarefa";
 
-type Modo = "aparelho" | "vazio";
-
-export function ListaDeHoje({ modo }: { modo: Modo }) {
-  const [store] = useState(() => (modo === "vazio" ? criarListaVazia() : criarListaDoAparelho()));
-  const tarefas = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
+export function ListaDeHoje({ tarefas }: { tarefas: Tarefa[] }) {
+  const [lista, adicionarNaHora] = useOptimistic(tarefas, (atual: Tarefa[], nova: Tarefa) => [...atual, nova]);
   const [texto, setTexto] = useState("");
+  const [erro, setErro] = useState<string | null>(null);
   const campoId = useId();
-
-  if (tarefas === null) return <ListaCarregando />;
+  const erroId = useId();
 
   function confirmar(evento: React.FormEvent<HTMLFormElement>) {
     evento.preventDefault();
-    if (!texto.trim()) return;
-    store.anotar(texto);
+    const limpo = texto.trim();
+    if (!limpo) return;
     setTexto("");
+    setErro(null);
+    startTransition(async () => {
+      adicionarNaHora({ id: `otimista-${Date.now()}`, texto: limpo, criadaEm: new Date().toISOString() });
+      const resultado = await anotar(limpo);
+      if (!resultado.ok) {
+        setTexto(limpo);
+        setErro(resultado.erro);
+      }
+    });
   }
 
   return (
     <Card>
       <CardContent className="flex flex-col gap-4">
-        <form onSubmit={confirmar} className="flex gap-2">
-          <Label htmlFor={campoId} className="sr-only">
-            Nova tarefa
-          </Label>
-          <Input
-            id={campoId}
-            value={texto}
-            onChange={(evento) => setTexto(evento.target.value)}
-            placeholder="Anote uma tarefa"
-            autoComplete="off"
-            autoFocus
-            className="h-11"
-          />
-          <Button type="submit" className="h-11 px-4">
-            Anotar
-          </Button>
-        </form>
+        <div className="flex flex-col gap-2">
+          <form onSubmit={confirmar} className="flex gap-2">
+            <Label htmlFor={campoId} className="sr-only">
+              Nova tarefa
+            </Label>
+            <Input
+              id={campoId}
+              value={texto}
+              onChange={(evento) => setTexto(evento.target.value)}
+              placeholder="Anote uma tarefa"
+              autoComplete="off"
+              autoFocus
+              aria-invalid={erro ? true : undefined}
+              aria-describedby={erro ? erroId : undefined}
+              className="h-11"
+            />
+            <Button type="submit" className="h-11 px-4">
+              Anotar
+            </Button>
+          </form>
+          {erro ? (
+            <p id={erroId} role="alert" className="text-sm text-destructive">
+              {erro}
+            </p>
+          ) : null}
+        </div>
 
-        {tarefas.length === 0 ? (
+        {lista.length === 0 ? (
           <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
             Nada para hoje ainda. Anote a primeira tarefa.
           </p>
@@ -55,7 +71,7 @@ export function ListaDeHoje({ modo }: { modo: Modo }) {
           <>
             <Separator />
             <ul aria-label="Tarefas de hoje" className="flex flex-col">
-              {tarefas.map((tarefa) => (
+              {lista.map((tarefa) => (
                 <li key={tarefa.id} className="flex min-h-11 items-center border-b py-2 text-base last:border-b-0">
                   {tarefa.texto}
                 </li>

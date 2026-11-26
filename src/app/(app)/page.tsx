@@ -1,44 +1,37 @@
 import { Suspense } from "react";
-import Link from "next/link";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { buttonVariants } from "@/components/ui/button";
-import { DataDeHoje } from "@/components/hoje/data-de-hoje";
+import { cookies } from "next/headers";
+import { connection } from "next/server";
+import { getDb } from "@/db";
+import { DataDeHoje, DataDeHojeCarregando } from "@/components/hoje/data-de-hoje";
 import { ListaCarregando, ListaDeHoje } from "@/components/hoje/lista-de-hoje";
+import { formatarDataDeHoje } from "@/lib/domain/dia";
+import { listarTarefasDeHoje } from "@/lib/domain/tarefas";
+import { COOKIE_DO_APARELHO } from "./aparelho";
 
-// Protótipo da story #8. Estados pela URL: ?estado=padrao | vazio | carregando | erro
-export default function HojePage({ searchParams }: PageProps<"/">) {
+export default function HojePage() {
   return (
     <>
       <header className="flex flex-col gap-1">
         <h1 className="font-heading text-3xl font-semibold tracking-tight">Hoje</h1>
-        <DataDeHoje />
+        <Suspense fallback={<DataDeHojeCarregando />}>
+          <DataDoServidor />
+        </Suspense>
       </header>
       <Suspense fallback={<ListaCarregando />}>
-        <Conteudo searchParams={searchParams} />
+        <ListaDeHojeDoAparelho />
       </Suspense>
     </>
   );
 }
 
-async function Conteudo({ searchParams }: Pick<PageProps<"/">, "searchParams">) {
-  const { estado } = await searchParams;
-
-  if (estado === "carregando") return <ListaCarregando />;
-  if (estado === "erro") return <ListaErro />;
-  const modo = estado === "vazio" ? "vazio" : "aparelho";
-  return <ListaDeHoje key={modo} modo={modo} />;
+async function DataDoServidor() {
+  await connection();
+  return <DataDeHoje data={formatarDataDeHoje(new Date())} />;
 }
 
-function ListaErro() {
-  return (
-    <Alert variant="destructive">
-      <AlertTitle>Não deu para abrir sua lista.</AlertTitle>
-      <AlertDescription className="flex flex-col items-start gap-4">
-        <p>Suas tarefas continuam guardadas neste aparelho. Tente de novo.</p>
-        <Link href="/" className={buttonVariants({ variant: "outline" })}>
-          Tentar de novo
-        </Link>
-      </AlertDescription>
-    </Alert>
-  );
+async function ListaDeHojeDoAparelho() {
+  await connection();
+  const aparelhoId = (await cookies()).get(COOKIE_DO_APARELHO)?.value ?? null;
+  const tarefas = await listarTarefasDeHoje(await getDb(), aparelhoId, new Date());
+  return <ListaDeHoje tarefas={tarefas} />;
 }

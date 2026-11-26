@@ -2,7 +2,7 @@
 issue: 8
 epic: 4
 slug: abrir-e-anotar
-status: spec
+status: dev
 ---
 
 # #8 — Abrir na lista de hoje e anotar uma tarefa
@@ -171,3 +171,11 @@ Os testes de unidade de `src/lib/domain/tarefas.ts` rodam contra o PGlite em mem
 - **Atualização otimista** — o NFR pede resposta na hora sem esperar o servidor. `useOptimistic` mostra a tarefa na hora; `refresh()` na action traz a lista real.
 - **Check de 1 a 200 caracteres já no banco** — é regra do CAP-2 e não custa nada agora. A mensagem na tela e os ACs dela são da #11.
 - **Sem dependência de outras stories** — esta story cria `aparelhos` e `tarefas` do zero; os testes preparam tudo pela UI.
+
+### Notas de implementação
+- **`error.tsx` usa `retry()`**, a prop estável do Next 16.3+ que busca os dados de novo e re-renderiza, no lugar de `reset()`/`router.refresh()`. O botão "Tentar de novo" é um `Button` (o protótipo usava um `Link` com `buttonVariants`, que recarregava a rota).
+- **O cookie `pauta_aparelho` só é gravado quando a tarefa é gravada.** Texto inválido ou falha do banco não criam cookie, para não deixar um aparelho apontando para nada.
+- **Validação do cookie no domínio:** `ehIdDeAparelho` (em `src/lib/domain/tarefas.ts`) é usada pela leitura e pela action. Um cookie que não é UUID vira lista vazia na leitura (o Postgres recusaria o cast) e um aparelho novo no anotar.
+- **Funções de domínio devolvem `Resultado<T>`** (`{ ok: true, valor } | { ok: false, erro }`) em vez de lançar erro de validação; a action converte para o contrato `{ ok, tarefa } | { ok, erro }`.
+- **`criadaEm` do `anotarTarefa` volta formatado em ISO UTC pelo próprio SQL** (`to_char`), porque o `RETURNING` do comando bruto devolve timestamps em formatos diferentes no PGlite e no Neon HTTP.
+- **Campo vazio continua sem fazer nada no cliente**, como no protótipo; o servidor ainda aplica a regra e a mensagem fica para a #11.
