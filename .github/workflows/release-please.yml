@@ -1,0 +1,22 @@
+name: release-please
+
+# A cada push na main, o release-please lê os commits (Conventional Commits, vindos dos títulos
+# dos PRs com squash) e mantém aberto um "Release PR" com a próxima versão e o CHANGELOG.md.
+# Mergear o Release PR é o gate do /esteira:release: cria a tag e a release no GitHub.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
