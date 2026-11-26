@@ -64,6 +64,8 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
+          # Disparado pelo esteira-gates (bot github-actions). Só esse bot: "*" deixaria apps externos invocarem a action.
+          allowed_bots: github-actions
           plugin_marketplaces: https://github.com/alexandredavi/esteira.git
           plugins: esteira@esteira
           prompt: "/esteira:dev ${{ env.STORY }}"
@@ -75,6 +77,8 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
+          # Disparado pelo esteira-gates (bot github-actions). Só esse bot: "*" deixaria apps externos invocarem a action.
+          allowed_bots: github-actions
           plugin_marketplaces: https://github.com/alexandredavi/esteira.git
           plugins: esteira@esteira
           prompt: "/esteira:testes ${{ env.STORY }}"
@@ -92,6 +96,8 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
+          # Disparado pelo esteira-gates (bot github-actions). Só esse bot: "*" deixaria apps externos invocarem a action.
+          allowed_bots: github-actions
           plugin_marketplaces: https://github.com/alexandredavi/esteira.git
           plugins: esteira@esteira
           prompt: "/esteira:review"
