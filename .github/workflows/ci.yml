@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Lint, tipos, testes, build, rastreabilidade e aceite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Lint (inclui a regra do Design System)
+        run: npm run lint
+      - name: Tipos
+        run: npm run typecheck
+      - name: Testes de unidade (Vitest)
+        run: npm run test --if-present
+      - name: Build
+        run: npm run build
+      - name: Rastreabilidade (todo AC de story em dev tem teste)
+        run: |
+          if [ -f scripts/esteira/traceability.mjs ]; then node scripts/esteira/traceability.mjs; else echo "Rastreabilidade ainda não instalada."; fi
+      - name: Navegador dos testes de aceite
+        if: hashFiles('playwright.config.ts') != ''
+        run: npx playwright install --with-deps chromium
+      - name: Testes de aceite (Playwright)
+        if: hashFiles('playwright.config.ts') != ''
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v5
+        if: failure() && hashFiles('playwright.config.ts') != ''
+        with:
+          name: playwright-report
+          path: test-results/
+          if-no-files-found: ignore

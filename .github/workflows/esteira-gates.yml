@@ -1,0 +1,37 @@
+name: esteira-gates
+
+# Quando um PR de gate da esteira é mergeado, aplica nas stories as labels da etapa aprovada.
+# O PR traz o marcador <!-- esteira:gate stage=<etapa> stories=<n,n> --> (escrito por gate.mjs).
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  labels:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aplicar labels do gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ github.event.pull_request.body }}
+          REPO: ${{ github.repository }}
+        run: |
+          marker=$(printf '%s' "$BODY" | grep -oE '<!-- esteira:gate stage=[a-z-]+( stories=[0-9,]+)? -->' | head -n1 || true)
+          if [ -z "$marker" ]; then echo "PR sem marcador de gate da esteira."; exit 0; fi
+          stage=$(printf '%s' "$marker" | sed -E 's/.*stage=([a-z-]+).*/\1/')
+          stories=$(printf '%s' "$marker" | grep -oE 'stories=[0-9,]+' | cut -d= -f2 | tr ',' ' ' || true)
+          case "$stage" in
+            prototipo) labels="design:approved" ;;
+            spec) labels="spec:approved,ready-for-dev" ;;
+            *) echo "Etapa '$stage' não aplica labels."; exit 0 ;;
+          esac
+          for n in $stories; do
+            echo "#$n ← $labels"
+            gh issue edit "$n" --repo "$REPO" --add-label "$labels"
+          done
