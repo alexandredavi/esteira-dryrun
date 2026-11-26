@@ -2,7 +2,7 @@
 issue: 8
 epic: 4
 slug: abrir-e-anotar
-status: backlog
+status: design
 ---
 
 # #8 — Abrir na lista de hoje e anotar uma tarefa
@@ -70,9 +70,32 @@ Cenário: A lista continua ao voltar no mesmo navegador
 
 ## Design
 
-<!-- Preenchido por /esteira:prototipo: telas, estados (vazio, carregando, erro), componentes do DS usados, link do preview. -->
+> **Decisão sem consulta:** a pessoa responsável não pôde responder perguntas nesta etapa e pediu para seguir com o plano recomendado.
 
-_Pendente._
+### Rotas
+- `/` — lista de hoje: título "Hoje", data do dia no formato brasileiro (ex.: "Quinta-feira, 26/11/2026"), campo para anotar com o botão "Anotar" e a lista de tarefas num `Card`. O cabeçalho do app mostra só o nome Pauta e o link "Hoje", sem cadastro, login nem tutorial. Substitui o "Hello world" de `src/app/page.tsx`.
+
+### Como ver cada critério
+| AC | Onde | Como |
+|---|---|---|
+| AC-8.1 | `/?estado=vazio` | Abra a URL: a primeira tela já é a lista de hoje, com "Hoje" e a data em dd/mm/aaaa. Não há cadastro, login nem tutorial. |
+| AC-8.2 | `/?estado=vazio` | Com a lista vazia aparecem só o campo "Anote uma tarefa" e a frase "Nada para hoje ainda. Anote a primeira tarefa." |
+| AC-8.3 | `/?estado=vazio` ou `/` | Digite "Ligar para o contador" e aperte Enter (ou "Anotar"): a tarefa aparece na lista e o campo fica limpo. |
+| AC-8.4 | `/` | Anote "Ligar para o contador", feche a aba e abra `/` de novo no mesmo navegador: a tarefa continua na lista (mock em `localStorage`). |
+
+### Estados
+| Estado | URL |
+|---|---|
+| Padrão (lista do aparelho, começa com 3 tarefas mock e guarda o que for anotado) | `/` ou `/?estado=padrao` |
+| Vazio (primeiro acesso; fica só em memória) | `/?estado=vazio` |
+| Carregando | `/?estado=carregando` |
+| Erro | `/?estado=erro` |
+
+### Componentes do DS
+`Card`, `Input`, `Label` (oculto visualmente, para leitor de tela), `Button`, `Separator`, `Skeleton` (carregando e data), `Alert` destrutivo (erro, com "Tentar de novo" via `buttonVariants`). Novos: nenhum componente de DS. Composições da tela em `src/components/hoje/` (`lista-de-hoje.tsx`, `data-de-hoje.tsx`) e o shell em `src/components/app-shell.tsx`.
+
+### Mocks
+`src/lib/mocks/tarefas.ts` — simula a lista de hoje guardada neste aparelho e navegador (`localStorage`, chave `pauta:prototipo:tarefas`), com 3 tarefas realistas na primeira visita, e uma lista vazia só em memória para o primeiro acesso. A tela usa o contrato `ListaDeHojeStore` (`subscribe`, `getSnapshot`, `anotar`). O /esteira:dev troca por dados reais.
 
 ## Técnica
 
