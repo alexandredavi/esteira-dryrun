@@ -11,6 +11,10 @@ name: esteira-piloto
 # - por uma pessoa: label ready-for-dev numa story, ou "Run workflow" com o número da story.
 #
 # Requer o secret ANTHROPIC_API_KEY (API key com limite de gasto) ou CLAUDE_CODE_OAUTH_TOKEN (claude setup-token).
+# Recomendado: ESTEIRA_PILOTO_TOKEN, um token fine-grained da pessoa, só neste repo. Com ele o push e o PR saem
+# como a pessoa e o CI normal do PR roda e aparece nos checks. Sem ele, o piloto usa o GITHUB_TOKEN: PR aberto
+# pelo bot do Actions não dispara o CI do PR, então o piloto dispara o CI à mão (o resultado fica no Actions,
+# não nos checks do PR).
 
 on:
   workflow_dispatch:
@@ -41,12 +45,15 @@ jobs:
     timeout-minutes: 90
     env:
       STORY: ${{ github.event.inputs.story || github.event.issue.number }}
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
+      HAS_PILOTO_TOKEN: ${{ secrets.ESTEIRA_PILOTO_TOKEN != '' }}
       CI: "1"
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          # O push do piloto usa este token: com o token da pessoa, o push dispara o CI do PR.
+          token: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -63,7 +70,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ github.token }}
+          github_token: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
           # Disparado pelo esteira-gates (bot github-actions). Só esse bot: "*" deixaria apps externos invocarem a action.
           allowed_bots: github-actions
           plugin_marketplaces: https://github.com/alexandredavi/esteira.git
@@ -76,7 +83,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ github.token }}
+          github_token: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
           # Disparado pelo esteira-gates (bot github-actions). Só esse bot: "*" deixaria apps externos invocarem a action.
           allowed_bots: github-actions
           plugin_marketplaces: https://github.com/alexandredavi/esteira.git
@@ -84,18 +91,31 @@ jobs:
           prompt: "/esteira:testes ${{ env.STORY }}"
           claude_args: --max-turns 80 --permission-mode acceptEdits --allowedTools "Bash(node:*),Bash(npm run:*),Bash(npx playwright install chromium),Bash(git rm:*),Bash(git status:*)"
 
-      - name: CI do branch da story
-        # O PR foi aberto com o GITHUB_TOKEN, que não dispara o CI sozinho: dispara pelo workflow_dispatch.
+      - name: Esperar o CI do PR
+        # O review só roda depois que o CI do commit do PR termina (verde ou vermelho: o review relata).
         run: |
           branch=$(gh pr list --state open --json headRefName --jq ".[] | select(.headRefName | startswith(\"feat/${STORY}-\")) | .headRefName" | head -n1)
-          if [ -n "$branch" ]; then gh workflow run ci.yml --ref "$branch"; else echo "Nenhum PR aberto para a story #${STORY}."; fi
+          if [ -z "$branch" ]; then echo "Nenhum PR aberto para a story #${STORY}."; exit 0; fi
+          sha=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          if [ "$HAS_PILOTO_TOKEN" != "true" ]; then
+            echo "::warning::Sem ESTEIRA_PILOTO_TOKEN: o CI deste PR roda pelo workflow_dispatch e não aparece nos checks do PR."
+            gh workflow run ci.yml --ref "$branch"
+          fi
+          run=""
+          for i in $(seq 1 30); do
+            run=$(gh run list --workflow ci.yml --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId')
+            [ -n "$run" ] && break
+            sleep 10
+          done
+          if [ -z "$run" ]; then echo "::warning::O CI do commit $sha não começou em 5 minutos."; exit 0; fi
+          gh run watch "$run" --interval 20 || echo "::warning::O CI do PR falhou: o review vai relatar."
 
       - name: Review (/esteira:review)
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ github.token }}
+          github_token: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
           # Disparado pelo esteira-gates (bot github-actions). Só esse bot: "*" deixaria apps externos invocarem a action.
           allowed_bots: github-actions
           plugin_marketplaces: https://github.com/alexandredavi/esteira.git
