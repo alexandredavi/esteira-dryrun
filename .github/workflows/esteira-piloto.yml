@@ -1,0 +1,98 @@
+name: esteira-piloto
+
+# Piloto automático da esteira: quando uma story fica pronta para dev (spec aprovada), roda no GitHub Actions
+#   /esteira:dev N  →  /esteira:testes N  →  /esteira:review
+# cada etapa numa sessão nova do Claude Code (o review não viu o código ser escrito).
+# O merge continua humano: o piloto para no comentário de review do PR.
+#
+# Disparo:
+# - pelo workflow esteira-gates, quando o PR da spec é mergeado (labels aplicadas pelo GITHUB_TOKEN não
+#   disparam workflows; workflow_dispatch é a exceção do GitHub);
+# - por uma pessoa: label ready-for-dev numa story, ou "Run workflow" com o número da story.
+#
+# Requer o secret ANTHROPIC_API_KEY (API key com limite de gasto) ou CLAUDE_CODE_OAUTH_TOKEN (claude setup-token).
+
+on:
+  workflow_dispatch:
+    inputs:
+      story:
+        description: Número da issue da story
+        required: true
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+  id-token: write
+
+concurrency:
+  group: esteira-piloto-${{ github.event.inputs.story || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  piloto:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.label.name == 'ready-for-dev' && contains(github.event.issue.labels.*.name, 'type:story'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      STORY: ${{ github.event.inputs.story || github.event.issue.number }}
+      GH_TOKEN: ${{ github.token }}
+      CI: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Identidade do git
+        run: |
+          git config user.name "esteira-piloto[bot]"
+          git config user.email "esteira-piloto@users.noreply.github.com"
+
+      - name: Dev (/esteira:dev)
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          plugin_marketplaces: https://github.com/alexandredavi/esteira.git
+          plugins: esteira@esteira
+          prompt: "/esteira:dev ${{ env.STORY }}"
+          claude_args: --max-turns 120 --permission-mode acceptEdits --allowedTools "Bash(node:*),Bash(npm run:*),Bash(npx shadcn@4.23.1 add:*),Bash(git rm:*),Bash(git status:*)"
+
+      - name: Testes de aceite (/esteira:testes)
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          plugin_marketplaces: https://github.com/alexandredavi/esteira.git
+          plugins: esteira@esteira
+          prompt: "/esteira:testes ${{ env.STORY }}"
+          claude_args: --max-turns 80 --permission-mode acceptEdits --allowedTools "Bash(node:*),Bash(npm run:*),Bash(npx playwright install chromium),Bash(git rm:*),Bash(git status:*)"
+
+      - name: CI do branch da story
+        # O PR foi aberto com o GITHUB_TOKEN, que não dispara o CI sozinho: dispara pelo workflow_dispatch.
+        run: |
+          branch=$(gh pr list --state open --json headRefName --jq ".[] | select(.headRefName | startswith(\"feat/${STORY}-\")) | .headRefName" | head -n1)
+          if [ -n "$branch" ]; then gh workflow run ci.yml --ref "$branch"; else echo "Nenhum PR aberto para a story #${STORY}."; fi
+
+      - name: Review (/esteira:review)
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          plugin_marketplaces: https://github.com/alexandredavi/esteira.git
+          plugins: esteira@esteira
+          prompt: "/esteira:review"
+          claude_args: --max-turns 60 --allowedTools "Bash(node:*),Bash(npm run:*),Bash(gh pr view:*),Bash(gh pr checks:*),Bash(gh pr review:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Write"
