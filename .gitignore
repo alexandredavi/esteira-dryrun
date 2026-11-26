@@ -22,3 +22,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .esteira/
+
+# esteira / Next.js
+test-results/
+playwright-report/
+blob-report/
