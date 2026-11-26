@@ -2,7 +2,7 @@
 issue: 9
 epic: 4
 slug: aviso-lista-no-aparelho
-status: spec
+status: dev
 ---
 
 # #9 — Saber que a lista fica neste aparelho
