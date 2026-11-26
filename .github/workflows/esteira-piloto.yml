@@ -1,7 +1,7 @@
 name: esteira-piloto
 
 # Piloto automático da esteira: quando uma story fica pronta para dev (spec aprovada), roda no GitHub Actions
-#   /esteira:dev N  →  /esteira:testes N  →  /esteira:review
+#   /esteira:dev N  →  /esteira:testes N  →  espera o CI do PR  →  /esteira:review
 # cada etapa numa sessão nova do Claude Code (o review não viu o código ser escrito).
 # O merge continua humano: o piloto para no comentário de review do PR.
 #
@@ -10,11 +10,15 @@ name: esteira-piloto
 #   disparam workflows; workflow_dispatch é a exceção do GitHub);
 # - por uma pessoa: label ready-for-dev numa story, ou "Run workflow" com o número da story.
 #
-# Requer o secret ANTHROPIC_API_KEY (API key com limite de gasto) ou CLAUDE_CODE_OAUTH_TOKEN (claude setup-token).
-# Recomendado: ESTEIRA_PILOTO_TOKEN, um token fine-grained da pessoa, só neste repo. Com ele o push e o PR saem
-# como a pessoa e o CI normal do PR roda e aparece nos checks. Sem ele, o piloto usa o GITHUB_TOKEN: PR aberto
-# pelo bot do Actions não dispara o CI do PR, então o piloto dispara o CI à mão (o resultado fica no Actions,
-# não nos checks do PR).
+# Secrets:
+# - ANTHROPIC_API_KEY (com limite de gasto) ou CLAUDE_CODE_OAUTH_TOKEN (claude setup-token).
+# - ESTEIRA_PILOTO_TOKEN (recomendado): token fine-grained da pessoa, só neste repo, com Contents, Pull requests
+#   e Issues (sem Workflows). Com ele, o push e o PR saem como a pessoa e o CI normal do PR roda nos checks.
+#
+# Segurança:
+# - O modelo trabalha com esse token durante o dev e os testes. A garantia de que ele não pula o gate humano é
+#   técnica: a main precisa exigir PR (ruleset sem bypass). O /esteira:piloto confere isso.
+# - O token só existe nos passos que precisam dele (nunca no npm ci nem na instalação de dependências).
 
 on:
   workflow_dispatch:
@@ -22,6 +26,10 @@ on:
       story:
         description: Número da issue da story
         required: true
+      force:
+        description: Rodar mesmo se já houver um PR aberto para a story
+        type: boolean
+        default: false
   issues:
     types: [labeled]
 
@@ -33,7 +41,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: esteira-piloto-${{ github.event.inputs.story || github.event.issue.number }}
+  group: esteira-piloto-${{ github.event.inputs.story || github.event.issue.number }}-${{ github.event.label.name || 'dispatch' }}
   cancel-in-progress: false
 
 jobs:
@@ -45,27 +53,47 @@ jobs:
     timeout-minutes: 90
     env:
       STORY: ${{ github.event.inputs.story || github.event.issue.number }}
-      GH_TOKEN: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
-      HAS_PILOTO_TOKEN: ${{ secrets.ESTEIRA_PILOTO_TOKEN != '' }}
       CI: "1"
     steps:
+      - name: Pré-checagem
+        id: pre
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ github.event.inputs.force || 'false' }}
+          REPO: ${{ github.repository }}
+        run: |
+          if ! [[ "$STORY" =~ ^[0-9]+$ ]]; then echo "::error::Story inválida: '$STORY' (use o número da issue)."; exit 1; fi
+          open=$(gh pr list --repo "$REPO" --state open --json headRefName --jq ".[] | select(.headRefName | startswith(\"feat/${STORY}-\")) | .headRefName" | head -n1)
+          if [ -n "$open" ] && [ "$FORCE" != "true" ]; then
+            echo "::notice::Já existe um PR aberto para a story #${STORY} ($open). Nada a fazer (use force para rodar de novo)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v5
+        if: steps.pre.outputs.skip != 'true'
         with:
           fetch-depth: 0
           # O push do piloto usa este token: com o token da pessoa, o push dispara o CI do PR.
           token: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
       - uses: actions/setup-node@v5
+        if: steps.pre.outputs.skip != 'true'
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - if: steps.pre.outputs.skip != 'true'
+        run: npm ci
+      - if: steps.pre.outputs.skip != 'true'
+        run: npx playwright install --with-deps chromium
       - name: Identidade do git
+        if: steps.pre.outputs.skip != 'true'
         run: |
           git config user.name "esteira-piloto[bot]"
           git config user.email "esteira-piloto@users.noreply.github.com"
 
       - name: Dev (/esteira:dev)
+        if: steps.pre.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -79,12 +107,12 @@ jobs:
           claude_args: --max-turns 120 --permission-mode acceptEdits --allowedTools "Bash(node:*),Bash(npm run:*),Bash(npx shadcn@4.23.1 add:*),Bash(git rm:*),Bash(git status:*)"
 
       - name: Testes de aceite (/esteira:testes)
+        if: steps.pre.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
-          # Disparado pelo esteira-gates (bot github-actions). Só esse bot: "*" deixaria apps externos invocarem a action.
           allowed_bots: github-actions
           plugin_marketplaces: https://github.com/alexandredavi/esteira.git
           plugins: esteira@esteira
@@ -92,31 +120,36 @@ jobs:
           claude_args: --max-turns 80 --permission-mode acceptEdits --allowedTools "Bash(node:*),Bash(npm run:*),Bash(npx playwright install chromium),Bash(git rm:*),Bash(git status:*)"
 
       - name: Esperar o CI do PR
+        if: steps.pre.outputs.skip != 'true'
         # O review só roda depois que o CI do commit do PR termina (verde ou vermelho: o review relata).
+        # github.token (actions: write no job) lê as execuções também em repo privado.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAS_PILOTO_TOKEN: ${{ secrets.ESTEIRA_PILOTO_TOKEN != '' }}
         run: |
-          branch=$(gh pr list --state open --json headRefName --jq ".[] | select(.headRefName | startswith(\"feat/${STORY}-\")) | .headRefName" | head -n1)
+          branch=$(gh pr list --state open --json headRefName --jq ".[] | select(.headRefName | startswith(\"feat/${STORY}-\")) | .headRefName" | head -n1 || true)
           if [ -z "$branch" ]; then echo "Nenhum PR aberto para a story #${STORY}."; exit 0; fi
           sha=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
           if [ "$HAS_PILOTO_TOKEN" != "true" ]; then
             echo "::warning::Sem ESTEIRA_PILOTO_TOKEN: o CI deste PR roda pelo workflow_dispatch e não aparece nos checks do PR."
-            gh workflow run ci.yml --ref "$branch"
+            gh workflow run ci.yml --ref "$branch" || true
           fi
           run=""
           for i in $(seq 1 30); do
-            run=$(gh run list --workflow ci.yml --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId')
+            run=$(gh run list --workflow ci.yml --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId' || true)
             [ -n "$run" ] && break
             sleep 10
           done
           if [ -z "$run" ]; then echo "::warning::O CI do commit $sha não começou em 5 minutos."; exit 0; fi
-          gh run watch "$run" --interval 20 || echo "::warning::O CI do PR falhou: o review vai relatar."
+          gh run watch "$run" --exit-status --interval 20 || echo "::warning::O CI do PR falhou: o review vai relatar."
 
       - name: Review (/esteira:review)
+        if: steps.pre.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.ESTEIRA_PILOTO_TOKEN || github.token }}
-          # Disparado pelo esteira-gates (bot github-actions). Só esse bot: "*" deixaria apps externos invocarem a action.
           allowed_bots: github-actions
           plugin_marketplaces: https://github.com/alexandredavi/esteira.git
           plugins: esteira@esteira
