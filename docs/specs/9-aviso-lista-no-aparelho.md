@@ -2,7 +2,7 @@
 issue: 9
 epic: 4
 slug: aviso-lista-no-aparelho
-status: backlog
+status: design
 ---
 
 # #9 — Saber que a lista fica neste aparelho
@@ -59,9 +59,31 @@ Cenário: Outro navegador começa uma lista nova
 
 ## Design
 
-<!-- Preenchido por /esteira:prototipo: telas, estados (vazio, carregando, erro), componentes do DS usados, link do preview. -->
+> **Decisão sem consulta:** a pessoa responsável não pôde responder perguntas nesta etapa e pediu para seguir com o plano. As escolhas abaixo são a recomendação da etapa, para revisão no PR.
 
-_Pendente._
+### Rotas
+- `/` (Hoje) — a lista real da #8 ganha, abaixo do card da lista, o aviso fixo "Sua lista fica neste aparelho". O aviso é estático (fora do `<Suspense>`), aparece em todos os estados e não tem botão de fechar: não fica por cima de nada nem exige ação.
+
+### Como ver cada critério
+| AC | Onde | Como |
+|---|---|---|
+| AC-9.1 | `/` | Abaixo da lista, leia o aviso: a lista fica só neste aparelho e navegador, e limpar os dados do navegador apaga a lista. |
+| AC-9.2 | `/` ou `/?estado=vazio` | Abra a página: o campo "Anote uma tarefa" já está com foco. Digite e clique em Anotar sem fechar nenhum aviso. |
+| AC-9.3 | `/?estado=vazio` | Simula o Pauta aberto em outro navegador: a lista aparece vazia ("Nada para hoje ainda.") e o aviso continua abaixo dela. Para ver de verdade, abra a produção ou o preview em outro navegador. |
+
+### Estados
+| Estado | URL |
+|---|---|
+| Padrão (dados reais do aparelho) | `/` |
+| Vazio (outro navegador) | `/?estado=vazio` |
+| Carregando | `/?estado=carregando` |
+| Erro | `/?estado=erro` |
+
+### Componentes do DS
+`Alert` (aviso, com `role="note"` e fundo `muted` para ficar discreto e não ser anunciado como urgente por leitores de tela; `variant="destructive"` no estado de erro), `Button`, `Card`, `Input`, `Label`, `Separator`, `Skeleton`. Novos: nenhum componente de UI. Dois componentes de tela em `src/components/hoje/`: `aviso-do-aparelho.tsx` e `lista-com-erro.tsx` (o estado de erro para o preview, com "Tentar de novo").
+
+### Mocks
+`src/lib/mocks/aparelho.ts` — o seletor `?estado=` e a lista vazia que simula outro navegador. Sem `?estado=`, a página usa os dados reais da #8. No `?estado=vazio`, anotar grava de verdade no aparelho, mas a lista do preview continua vazia. O /esteira:dev decide se mantém ou remove o seletor de estados.
 
 ## Técnica
 
