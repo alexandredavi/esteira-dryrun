@@ -89,6 +89,16 @@ describe("anotarTarefa", () => {
     expect(lista.at(-1)?.texto).toBe("Ligar para o contador");
   });
 
+  it("anotar num aparelho novo não altera as tarefas de outro aparelho", async () => {
+    const db = await criarDbDeTeste();
+    await anotarTarefa(db, APARELHO, "Do primeiro navegador", new Date("2026-11-26T12:00:00Z"));
+    await anotarTarefa(db, OUTRO_APARELHO, "Do outro navegador", new Date("2026-11-26T13:00:00Z"));
+
+    expect(await db.select().from(aparelhos)).toHaveLength(2);
+    expect((await listarTarefasDeHoje(db, APARELHO, HOJE)).map((t) => t.texto)).toEqual(["Do primeiro navegador"]);
+    expect((await listarTarefasDeHoje(db, OUTRO_APARELHO, HOJE)).map((t) => t.texto)).toEqual(["Do outro navegador"]);
+  });
+
   it("texto vazio não grava nada", async () => {
     const db = await criarDbDeTeste();
     expect(await anotarTarefa(db, APARELHO, "   ", HOJE)).toEqual({ ok: false, erro: ERRO_TAREFA_VAZIA });
