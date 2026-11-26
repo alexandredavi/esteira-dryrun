@@ -2,6 +2,8 @@ name: esteira-gates
 
 # Quando um PR de gate da esteira é mergeado, aplica nas stories as labels da etapa aprovada.
 # O PR traz o marcador <!-- esteira:gate stage=<etapa> stories=<n,n> --> (escrito por gate.mjs).
+# Spec aprovada + piloto automático instalado → dispara o esteira-piloto para cada story
+# (label aplicada pelo GITHUB_TOKEN não dispara workflow; workflow_dispatch é a exceção do GitHub).
 
 on:
   pull_request:
@@ -10,13 +12,14 @@ on:
 permissions:
   issues: write
   pull-requests: read
+  actions: write
 
 jobs:
   labels:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - name: Aplicar labels do gate
+      - name: Aplicar labels do gate (e disparar o piloto)
         env:
           GH_TOKEN: ${{ github.token }}
           BODY: ${{ github.event.pull_request.body }}
@@ -35,3 +38,9 @@ jobs:
             echo "#$n ← $labels"
             gh issue edit "$n" --repo "$REPO" --add-label "$labels"
           done
+          if [ "$stage" = "spec" ] && gh workflow view esteira-piloto.yml --repo "$REPO" >/dev/null 2>&1; then
+            for n in $stories; do
+              echo "Piloto automático: story #$n"
+              gh workflow run esteira-piloto.yml --repo "$REPO" -f story="$n"
+            done
+          fi

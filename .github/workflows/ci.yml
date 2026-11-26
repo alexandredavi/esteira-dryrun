@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # O piloto automático dispara o CI do branch da story: PRs abertos pelo GITHUB_TOKEN não disparam sozinhos.
+  workflow_dispatch:
 
 jobs:
   verify:
